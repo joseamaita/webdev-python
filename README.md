@@ -1,4 +1,4 @@
-# Guide for Web Application Programming with Python
+# Guide for Web Development with Python
 
 ## Introduction
 
