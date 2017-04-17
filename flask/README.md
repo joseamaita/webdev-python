@@ -35,6 +35,8 @@ These books will help you to know more about Flask:
 
 * Flask Web Development (O'Reilly - Miguel Grinberg)
 * Building Web Applications with Flask (Packt Publishing - Italo Maia)
+* Learning Flask Framework (Packt Publishing - Matt Copperwaite, Charles 
+Leifer)
 * Flask Framework Cookbook (Packt Publishing - Shalabh Aggarwal)
 * Instant Flask Web Development (Packt Publishing - Ron DuPlain)
 * Flask Blueprints (Packt Publishing - Joël Perras)
