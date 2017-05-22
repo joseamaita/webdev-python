@@ -297,3 +297,159 @@ The random post generation must assign a random user to each post. For
 this the `offset()` query filter is used. This filter discards the 
 number of results given as an argument. By setting a random offset and 
 then calling `first()`, a different random user is obtained each time.
+
+The new methods make it easy to create a large number of fake users and 
+posts from the Python shell:
+
+```python
+(flask01) $ python manage.py shell
+>>> User.generate_fake(100)
+>>> Post.generate_fake(100)
+```
+
+If you run the application now, you will see a long list of random blog 
+posts on the home page.
+
+**Rendering Data on Pages**
+
+The following example shows the changes to the home page route to 
+support pagination:
+
+```python
+@main.route('/', methods=['GET', 'POST'])
+def index():
+    # ...
+    page = request.args.get('page', 1, type=int)
+    pagination = Post.query.order_by(Post.timestamp.desc()).paginate(
+        page, per_page=current_app.config['FLASKY_POSTS_PER_PAGE'],
+        error_out=False)
+    posts = pagination.items
+    return render_template('index.html', form=form, posts=posts,
+                           pagination=pagination)
+```
+
+The page number to render is obtained from the request's query string, 
+which is available as `request.args`. When an explicit page isn't given, 
+a default page of `1` (the first page) is used. The `type=int` argument 
+ensures that if the argument cannot be converted to an integer, the 
+default value is returned.
+
+To load a single page of records, the call to `all()` is replaced with 
+Flask-SQLAlchemy's `paginate()`. The `paginate()` method takes the page 
+number as the first and only required argument. An optional `per_page` 
+argument can be given to indicate the size of each page, in number of 
+items. If this argument is not specified, the default is 20 items
+per page. Another optional argument called `error_out` can be set 
+to `True` (the default) to issue a code 404 error when a page outside of 
+the valid range is requested. If `error_out` is `False`, pages outside 
+of the valid range are returned with an empty list of items. To make the 
+page sizes configurable, the value of the `per_page` argument is read 
+from an application-specific configuration variable 
+called `FLASKY_POSTS_PER_PAGE`.
+
+With these changes, the blog post list in the home page will show a 
+limited number of items. To see the second page of posts, add 
+a `?page=2` query string to the URL in the browser's address bar.
+
+**Adding a Pagination Widget**
+
+The return value of `paginate()` is an object of class `Pagination`, a 
+class defined by Flask-SQLAlchemy. This object contains several 
+properties that are useful to generate page links in a template, so it 
+is passed to the template as an argument. A summary of the attributes of 
+the pagination object is shown here:
+
+Attribute | Description
+------------ | -------------
+`items` | The records in the current page
+`query` | The source query that was paginated
+`page` | The current page number
+`prev_num` | The previous page number
+`next_num` | The next page number
+`has_next` | `True` if there is a next page
+`has_prev` | `True` if there is a previous page
+`pages` | The total number of pages for the query
+`per_page` | The number of items per page
+`total` | The total number of items returned by the query
+
+The pagination object also has some methods, listed here:
+
+Method | Description
+------------ | -------------
+`iter_pages(left_edge=2, left_current=2, right_current=5, right_edge=2)` | An iterator that returns the sequence of page numbers to display in a pagination widget. The list will have `left_edge` pages on the left side, `left_current` pages to the left of the current page, `right_current` pages to the right of the current page, and `right_edge` pages on the right side. For example, for page 50 of 100 this iterator configured with default values will return the following pages: 1, 2, `None`, 48, 49, 50, 51, 52, 53, 54, 55, `None`, 99, 100. A `None` value in the sequence indicates a gap in the sequence of pages.
+`prev()` | A pagination object for the previous page.
+`next()` | A pagination object for the next page.
+
+Armed with this powerful object and Bootstrap's pagination CSS classes, 
+it is quite easy to build a pagination footer in the template. The 
+implementation shown in the following example is done as a reusable 
+Jinja2 macro:
+
+```html
+{% macro pagination_widget(pagination, endpoint) %}
+<ul class="pagination">
+    <li{% if not pagination.has_prev %} class="disabled"{% endif %}>
+        <a href="{% if pagination.has_prev %}{{ url_for(endpoint, page=pagination.prev_num, **kwargs) }}{% else %}#{% endif %}">
+            &laquo;
+        </a>
+    </li>
+    {% for p in pagination.iter_pages() %}
+        {% if p %}
+            {% if p == pagination.page %}
+            <li class="active">
+                <a href="{{ url_for(endpoint, page = p, **kwargs) }}">{{ p }}</a>
+            </li>
+            {% else %}
+            <li>
+                <a href="{{ url_for(endpoint, page = p, **kwargs) }}">{{ p }}</a>
+            </li>
+            {% endif %}
+        {% else %}
+        <li class="disabled"><a href="#">&hellip;</a></li>
+        {% endif %}
+    {% endfor %}
+    <li{% if not pagination.has_next %} class="disabled"{% endif %}>
+        <a href="{% if pagination.has_next %}{{ url_for(endpoint, page=pagination.next_num, **kwargs) }}{% else %}#{% endif %}">
+            &raquo;
+        </a>
+    </li>
+</ul>
+{% endmacro %}
+```
+
+The macro creates a Bootstrap pagination element, which is a styled 
+unordered list. It defines the following page links inside it:
+
+* A "previous page" link. This link gets the disabled class if the 
+current page is the first page.
+* Links to the all pages returned by the pagination 
+object's `iter_pages()` iterator. These pages are rendered as links with 
+an explicit page number, given as an argument to `url_for()`. The page 
+currently displayed is highlighted using the `active` CSS class. Gaps in 
+the sequence of pages are rendered with the ellipsis character.
+* A "next page" link. This link will appear disabled if the current page 
+is the last page.
+
+Jinja2 macros always receive keyword arguments without having to 
+include `**kwargs` in the argument list. The pagination macro passes all 
+the keyword arguments it receives to the `url_for()` call that generates 
+the pagination links. This approach can be used with routes such as the 
+profile page that have a dynamic part.
+
+The `pagination_widget` macro can be added below the *_posts.html* 
+template included by *index.html* and *user.html*. The following example 
+shows how it is used in the application's home page:
+
+```html
+{% extends "base.html" %}
+{% import "bootstrap/wtf.html" as wtf %}
+{% import "_macros.html" as macros %}
+...
+{% include '_posts.html' %}
+{% if pagination %}
+<div class="pagination">
+    {{ macros.pagination_widget(pagination, '.index') }}
+</div>
+{% endif %}
+{% endblock %}
+```
