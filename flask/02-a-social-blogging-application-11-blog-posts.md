@@ -453,3 +453,158 @@ shows how it is used in the application's home page:
 {% endif %}
 {% endblock %}
 ```
+
+### Rich-Text Posts with Markdown and Flask-PageDown
+
+Plain-text posts are sufficient for short messages and status updates, 
+but users who want to write longer articles will find the lack of 
+formatting very limiting. In this section, the text area field where 
+posts are entered will be upgraded to support 
+the [Markdown](https://daringfireball.net/projects/markdown/) syntax and 
+present a rich-text preview of the post.
+
+The implementation of this feature requires a few new packages:
+
+* PageDown, a client-side Markdown-to-HTML converter implemented in 
+JavaScript.
+* Flask-PageDown, a PageDown wrapper for Flask that integrates PageDown 
+with Flask-WTF forms.
+* Markdown, a server-side Markdown-to-HTML converter implemented in 
+Python.
+* Bleach, an HTML sanitizer implemented in Python.
+
+The Python packages can all be installed with pip:
+
+```
+(flask01) $ pip install flask-pagedown markdown bleach
+```
+
+**Using Flask-PageDown**
+
+The Flask-PageDown extension defines a `PageDownField` class that has 
+the same interface as the `TextAreaField` from WTForms. Before this 
+field can be used, the extension needs to be initialized as shown here:
+
+```python
+...
+from flask_pagedown import PageDown
+...
+pagedown = PageDown()
+...
+def create_app(config_name):
+    # ...
+    pagedown.init_app(app)
+```
+
+To convert the text area control in the home page to a Markdown 
+rich-text editor, the `body` field of the `PostForm` must be changed to 
+a `PageDownField` as shown here:
+
+```python
+...
+from flask_pagedown.fields import PageDownField
+...
+class PostForm(FlaskForm):
+    body = PageDownField("What's on your mind?", validators=[Required()])
+    submit = SubmitField('Submit')
+```
+
+The Markdown preview is generated with the help of the PageDown 
+libraries, so these must be added to the template. Flask-PageDown 
+simplifies this task by providing a template macro that includes the 
+required files from a CDN as shown in the following example:
+
+```html
+{% block scripts %}
+{{ super() }}
+{{ pagedown.include_pagedown() }}
+{% endblock %}
+```
+
+With these changes, Markdown-formatted text typed in the text area field 
+will be immediately rendered as HTML in the preview area below.
+
+**Handling Rich Text on the Server**
+
+When the form is submitted only the raw Markdown text is sent with 
+the `POST` request; the HTML preview that was shown on the page is 
+discarded. Sending the generated HTML preview with the form can be 
+considered a security risk, as it would be fairly easy for an attacker 
+to construct HTML sequences that do not match the Markdown source and 
+submit them. To avoid any risks, only the Markdown source text is 
+submitted, and once in the server it is converted again to HTML 
+using *Markdown*, a Python Markdown-to-HTML converter. The resulting 
+HTML will be sanitized with *Bleach* to ensure that only a short list of 
+allowed HTML tags are used.
+
+The conversion of the Markdown blog posts to HTML can be issued in 
+the *_posts.html* template, but this is inefficient, as posts will have 
+to be converted every time they are rendered to a page. To avoid this 
+repetition, the conversion can be done once when the blog post is 
+created. The HTML code for the rendered blog post is *cached* in a new 
+field added to the `Post` model that the template can access directly. 
+The original Markdown source is also kept in the database in case the 
+post needs to be edited. The following example shows the changes to 
+the `Post` model:
+
+```python
+...
+from markdown import markdown
+import bleach
+...
+class Post(db.Model):
+    # ...
+    body_html = db.Column(db.Text)
+    
+    # ...
+    @staticmethod
+    def on_changed_body(target, value, oldvalue, initiator):
+        allowed_tags = ['a', 'abbr', 'acronym', 'b', 'blockquote', 'code',
+                        'em', 'i', 'li', 'ol', 'pre', 'strong', 'ul',
+                        'h1', 'h2', 'h3', 'p']
+        target.body_html = bleach.linkify(bleach.clean(
+            markdown(value, output_format='html'),
+            tags=allowed_tags, strip=True))
+
+db.event.listen(Post.body, 'set', Post.on_changed_body)
+```
+
+The `on_changed_body` function is registered as a listener of 
+SQLAlchemy's "set" event for `body`, which means that it will be 
+automatically invoked whenever the `body` field on any instance of the 
+class is set to a new value. The function renders the HTML version of 
+the body and stores it in `body_html`, effectively making the conversion 
+of the Markdown text to HTML fully automatic.
+
+The actual conversion is done in three steps:
+
+1. First, the `markdown()` function does an initial conversion to HTML.
+1. The result is passed to `clean()`, along with the list of approved 
+HTML tags. The `clean()` function removes any tags not on the white 
+list.
+1. The final conversion is done with `linkify()`, another function 
+provided by Bleach that converts any URLs written in plain text into 
+proper `<a>` links. This last step is necessary because automatic link 
+generation is not officially in the Markdown specification. PageDown 
+supports it as an extension, so `linkify()` is used in the server to 
+match.
+
+The last change is to replace `post.body` with `post.body_html` in the 
+template when available, as shown here:
+
+```html
+...
+<div class="post-body">
+    {% if post.body_html %}
+        {{ post.body_html | safe }}
+    {% else %}
+        {{ post.body }}
+    {% endif %}
+</div>
+...
+```
+
+The `| safe` suffix when rendering the HTML body is there to tell Jinja2 
+not to escape the HTML elements. Jinja2 escapes all template variables 
+by default as a security measure. The Markdown-generated HTML was 
+generated in the server, so it is safe to render.
