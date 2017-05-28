@@ -608,3 +608,90 @@ The `| safe` suffix when rendering the HTML body is there to tell Jinja2
 not to escape the HTML elements. Jinja2 escapes all template variables 
 by default as a security measure. The Markdown-generated HTML was 
 generated in the server, so it is safe to render.
+
+To update the database with the `Post` model, do this:
+
+```
+(flask01) $ python manage.py db migrate -m "rich text posts"
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.autogenerate.compare] Detected added column 'posts.body_html'
+  Generating /home/flasky/flasky.git/migrations/versions/0bb24736999a_rich_text_posts.py ... done
+(flask01) $ python manage.py db upgrade
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade dd05f8e45e7b -> 0bb24736999a, rich text posts
+```
+
+### Permanent Links to Blog Posts
+
+Users may want to share links to specific blog posts with friends on 
+social networks. For this purpose, each post will be assigned a page 
+with a unique URL that references it. The route and view function that 
+support permanent links are shown here:
+
+```python
+@main.route('/post/<int:id>')
+def post(id):
+    post = Post.query.get_or_404(id)
+    return render_template('post.html', posts=[post])
+```
+
+The URLs that will be assigned to blog posts are constructed with the 
+unique `id` field assigned when the post is inserted in the database.
+
+Please, be aware that for some types of applications, building permanent 
+links that use readable URLs instead of numeric IDs may be preferred. An 
+alternative to numeric IDs is to assign each blog post a *slug*, which 
+is a unique string that is related to the post.
+
+Also, note that the new *post.html* template receives a list with just 
+the post to render. Sending a list is necessary so that 
+the *_posts.html* template referenced by *index.html* and *user.html* 
+can be used in this page as well.
+
+The permanent links are added at the bottom of each post in the 
+generic *_posts.html* template, as shown here:
+
+```html
+<ul class="posts">
+    {% for post in posts %}
+    <li class="post">
+        ...
+        <div class="post-content">
+            ...
+            <div class="post-footer">
+                <a href="{{ url_for('.post', id=post.id) }}">
+                    <span class="label label-default">Permalink</span>
+                </a>
+            </div>
+        </div>
+    </li>
+    {% endfor %}
+</ul>
+```
+
+The new *post.html* template that renders the permanent link page is 
+shown here:
+
+```html
+{% extends "base.html" %}
+{% import "_macros.html" as macros %}
+
+{% block title %}Flasky - Post{% endblock %}
+
+{% block page_content %}
+{% include '_posts.html' %}
+{% endblock %}
+```
+
+### Blog Post Editor
+
+The last feature related to blog posts is a post editor that allows 
+users to edit their own posts. The blog post editor will live in a 
+standalone page. At the top of the page, the current version of the post 
+will be shown for reference, followed by a Markdown editor where the 
+source Markdown can be modified. The editor will be based on 
+Flask-PageDown, so a preview of the edited version of the blog post will 
+be shown at the bottom of the page. The new *edit_post.html* template is 
+shown here:
